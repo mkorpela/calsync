@@ -4,7 +4,8 @@ This Python script syncs events from a private iCal calendar (like a Google Cale
 
 The script is stateful and robust:
 - It handles creating, updating (time changes), and deleting events.
-- It uses unique event IDs to avoid creating duplicates on subsequent runs.
+- It filters events to only sync those that are marked as "Busy".
+- It handles duplicate events in the source calendar gracefully.
 - It is safe to run automatically on a schedule.
 
 ## Prerequisites
@@ -81,8 +82,43 @@ Every subsequent run will use a cached token (stored in `.msal_token_cache.json`
 python -m calsync_app.sync_calendar
 ```
 
-### Scheduling
-You can use the Windows Task Scheduler to run this script automatically (e.g., every hour). Create a new task that runs a command like:
-`C:\path\to\your\project\.venv\Scripts\python.exe -m calsync_app.sync_calendar`
+## Automating the Sync with Windows Task Scheduler
 
----
+To make this a "set it and forget it" utility, you can create a scheduled task to run the script automatically every hour. This can be done easily with a single PowerShell command.
+
+1.  Open **PowerShell as an Administrator**.
+2.  Copy the entire script block below.
+3.  **IMPORTANT**: You **must** change the placeholder path in the `$projectPath` variable to the absolute path of your project folder.
+4.  Paste and run the script in the administrative PowerShell window.
+
+```powershell
+# --- 1. CONFIGURE THIS ---
+# IMPORTANT: Change this to the full, absolute path of your project's root directory.
+$projectPath = "C:\path\to\your\calsync\project"
+
+# --- 2. DEFINE TASK DETAILS ---
+# Path to the "windowless" Python executable in the virtual environment
+$pythonExecutable = Join-Path $projectPath ".venv\Scripts\pythonw.exe"
+# Arguments to run the script as a module
+$scriptArguments = "-m calsync_app.sync_calendar"
+
+# Define the command to run
+$taskAction = New-ScheduledTaskAction -Execute $pythonExecutable -Argument $scriptArguments -WorkingDirectory $projectPath
+# Define when to run (every hour)
+$taskTrigger = New-ScheduledTaskTrigger -RepetitionInterval (New-TimeSpan -Hours 1) -Once -At (Get-Date)
+# Define the user to run as
+$taskPrincipal = New-ScheduledTaskPrincipal -UserId (Get-CimInstance -ClassName Win32_ComputerSystem).Username -LogonType Interactive
+# Define task settings
+$taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+
+# --- 3. REGISTER THE TASK ---
+Register-ScheduledTask -TaskName "Python Calendar Sync" -Action $taskAction -Trigger $taskTrigger -Principal $taskPrincipal -Settings $taskSettings -Description "Syncs private iCal calendar to work Outlook calendar." -Force
+
+Write-Host "Scheduled task 'Python Calendar Sync' has been created or updated successfully."
+```
+
+### Verifying the Task
+1.  Open the **Task Scheduler** app from the Start Menu.
+2.  Click on **Task Scheduler Library** on the left.
+3.  You should see **Python Calendar Sync** in the list.
+4.  You can right-click it to run it manually or view its history. A "Last Run Result" of `0x0` indicates success.
