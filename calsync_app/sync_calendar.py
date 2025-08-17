@@ -99,8 +99,14 @@ def parse_ical(ical_data):
 
 # --- GRAPH API HELPERS ---
 def get_outlook_events(access_token, start_date, end_date):
-    """Fetches synced events from Outlook within a date range by looking for a UID tag."""
+    """
+    Fetches synced events from Outlook within a date range by looking for a UID tag.
+    Handles API pagination to retrieve all events.
+    """
     headers = {'Authorization': f'Bearer {access_token}'}
+    all_events_data = []
+    
+    # Construct the initial URL with parameters
     base_url = "https://graph.microsoft.com/v1.0/me/calendarview"
     params = {
         'startDateTime': start_date.isoformat(),
@@ -108,15 +114,24 @@ def get_outlook_events(access_token, start_date, end_date):
         '$select': 'id,subject,start,end,body'
     }
     
+    next_url = f"{base_url}?{requests.compat.urlencode(params)}"
+    
     print("Fetching existing events from Outlook...")
-    response = requests.get(base_url, headers=headers, params=params)
-    if response.status_code != 200:
-        print(f"Error fetching Outlook events: {response.text}")
-        return []
+    
+    # Loop until there are no more pages of results
+    while next_url:
+        response = requests.get(next_url, headers=headers)
+        if response.status_code != 200:
+            print(f"Error fetching Outlook events: {response.text}")
+            return []
 
-    events_data = response.json().get('value', [])
+        data = response.json()
+        all_events_data.extend(data.get('value', []))
+        next_url = data.get('@odata.nextLink')
+
+    # Now, parse the full list of events retrieved from all pages
     parsed_events = []
-    for event in events_data:
+    for event in all_events_data:
         body_content = event.get('body', {}).get('content', '')
         if event.get('body', {}).get('contentType') == 'html' and 'SourceUID::' in body_content:
             match = UID_REGEX.search(body_content)
