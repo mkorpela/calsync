@@ -92,10 +92,35 @@ def parse_ical(ical_data):
                 "uid": str(component.get('uid')),
                 "summary": str(component.get('summary')),
                 "start": start_dt,
-                "end": end_dt
+                "end": end_dt,
+                "transp": str(component.get('transp')), # Transparency (busy/free)
+                "status": str(component.get('status')), # Status (confirmed, tentative)
             })
     return events
 
+def filter_and_deduplicate_events(events):
+    """
+    Applies business logic to the raw list of parsed iCal events.
+    1. De-duplicates events based on UID.
+    2. Filters for events that should be synced (i.e., are 'busy').
+    """
+    # Stage 1: De-duplicate by UID, keeping the first one seen.
+    unique_events_by_uid = {}
+    for event in events:
+        if event['uid'] not in unique_events_by_uid:
+            unique_events_by_uid[event['uid']] = event
+    
+    deduplicated_events = list(unique_events_by_uid.values())
+    
+    # Stage 2: Filter for events that block time ('OPAQUE').
+    # We also check that the status is 'CONFIRMED'.
+    filtered_events = [
+        event for event in deduplicated_events
+        if event.get('transp') == 'OPAQUE' and event.get('status') == 'CONFIRMED'
+    ]
+    
+    print(f"Initial event count: {len(events)}. After de-duplication: {len(deduplicated_events)}. After filtering for busy/confirmed: {len(filtered_events)}.")
+    return filtered_events
 
 # --- GRAPH API HELPERS ---
 def get_outlook_events(access_token, start_date, end_date):
@@ -213,9 +238,13 @@ if __name__ == "__main__":
     if not ical_data: exit()
     
     all_ical_events = parse_ical(ical_data)
+    
+    # Apply our new filtering and de-duplication logic
+    processed_ical_events = filter_and_deduplicate_events(all_ical_events)
+    
     now = datetime.now(pytz.UTC)
     sync_end_date = now + timedelta(days=SYNC_DAYS)
-    ical_events_in_window = [e for e in all_ical_events if now <= e['start'] < sync_end_date]
+    ical_events_in_window = [e for e in processed_ical_events if now <= e['start'] < sync_end_date]
     print(f"Found {len(ical_events_in_window)} source events in the next {SYNC_DAYS} days.")
 
     outlook_events_in_window = get_outlook_events(access_token, now, sync_end_date)
