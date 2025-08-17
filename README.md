@@ -90,7 +90,8 @@ This is the most critical step. You must register the script as an application i
     ```
 
 ### 6. Install the Local Package
-To ensure the script and its tests can be found by Python, install it in "editable" mode. This links your virtual environment to your source code.```bash
+To ensure the script and its tests can be found by Python, install it in "editable" mode. This links your virtual environment to your source code.
+```bash
 pip install -e .
 ```
 
