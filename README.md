@@ -149,3 +149,7 @@ Write-Host "Scheduled task 'Python Calendar Sync' has been created or updated su
 2.  Click on **Task Scheduler Library** on the left.
 3.  You should see **Python Calendar Sync** in the list.
 4.  You can right-click it to run it manually or view its history. A "Last Run Result" of `0x0` indicates success.
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for details
