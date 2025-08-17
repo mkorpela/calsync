@@ -5,8 +5,11 @@ This Python script syncs events from a private iCal calendar (like a Google Cale
 The script is stateful and robust:
 - It handles creating, updating (time changes), and deleting events.
 - It filters events to only sync those that are marked as "Busy".
+- It can be configured to only sync events that fall within your defined "working hours".
 - It handles duplicate events in the source calendar gracefully.
 - It is safe to run automatically on a schedule.
+
+The source code is available at: https://github.com/mkorpela/calsync
 
 ## Prerequisites
 
@@ -16,6 +19,14 @@ The script is stateful and robust:
 3.  **Work Microsoft 365 Account**: You must have the ability to log into your work account via a web browser.
 
 ## Setup Instructions
+
+**Not a developer?** For a step-by-step, interactive installation, we strongly recommend using our AI-powered guide. Simply copy the contents of the file below and paste it into a chat with an AI assistant like Google Gemini or ChatGPT.
+
+➡️ **[AI Installation Guide](./AI_INSTALL_GUIDE.md)**
+
+---
+
+For users comfortable with a manual setup, follow the instructions below.
 
 ### 1. Get the Code
 Clone this repository to your machine or download the source code as a ZIP file.
@@ -56,14 +67,30 @@ This is the most critical step. You must register the script as an application i
 
 ### 5. Configure the Script
 1.  Make a copy of the `config.example.json` file and rename it to `config.json`.
-2.  Open `config.json` and fill in the values:
+2.  Open `config.json` with a text editor and fill in the values:
     -   `"client_id"`: Paste the **Application (client) ID** you copied from Azure.
     -   `"authority"`: In the URL, replace `YOUR_TENANT_ID_HERE` with the **Directory (tenant) ID** you copied.
     -   `"calendar_url"`: Paste your private iCal URL.
+    -   `"timezone"`: Specify your local timezone (e.g., `"America/New_York"`, `"Europe/London"`). This ensures the "working hours" filter works correctly. A full list of valid timezones can be found on [Wikipedia](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones).
+    -   `"working_hours"`: Define the days and times you want the script to sync. Events outside these hours will be ignored.
+        -   Days are lowercase: `"monday"`, `"tuesday"`, etc.
+        -   Times are in 24-hour format (`"HH:MM"`).
+        -   You can have multiple time slots for a single day. This is useful for split schedules (e.g., working in the evening).
+        -   If a day is not listed, no events will be synced for that day.
+
+    **Example `working_hours` configuration:**
+    ```json
+    "working_hours": {
+      "monday":    [{"start": "09:00", "end": "17:00"}, {"start": "21:00", "end": "23:00"}],
+      "tuesday":   [{"start": "09:00", "end": "17:00"}],
+      "wednesday": [{"start": "09:00", "end": "17:00"}],
+      "thursday":  [{"start": "09:00", "end": "17:00"}],
+      "friday":    [{"start": "09:00", "end": "13:00"}]
+    }
+    ```
 
 ### 6. Install the Local Package
-To ensure the script and its tests can be found by Python, install it in "editable" mode. This links your virtual environment to your source code.
-```bash
+To ensure the script and its tests can be found by Python, install it in "editable" mode. This links your virtual environment to your source code.```bash
 pip install -e .
 ```
 

@@ -1,6 +1,14 @@
 {
-  "client_id": "YOUR_CLIENT_ID_GOES_HERE",
-  "authority": "https://login.microsoftonline.com/YOUR_TENANT_ID_GOES_HERE",
-  "scopes": ["Calendars.ReadWrite", "User.Read"],
-  "calendar_url": "YOUR_ICAL_URL_GOES_HERE"
+"client_id": "YOUR_CLIENT_ID_GOES_HERE",
+"authority": "https://login.microsoftonline.com/YOUR_TENANT_ID_GOES_HERE",
+"scopes": ["Calendars.ReadWrite", "User.Read"],
+"calendar_url": "YOUR_ICAL_URL_GOES_HERE",
+"timezone": "Europe/Helsinki",
+"working_hours": {
+"monday": [{"start": "09:00", "end": "17:00"}, {"start": "21:00", "end": "23:00"}],
+"tuesday": [{"start": "09:00", "end": "17:00"}],
+"wednesday": [{"start": "09:00", "end": "17:00"}],
+"thursday": [{"start": "09:00", "end": "17:00"}],
+"friday": [{"start": "09:00", "end": "13:00"}]
+}
 }
