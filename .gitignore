@@ -1,3 +1,5 @@
 config.json
 .venv
 .msal_token_cache.json
+__pycache__
+*.egg-info

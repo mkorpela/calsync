@@ -1,0 +1,6 @@
+{
+  "client_id": "YOUR_CLIENT_ID_GOES_HERE",
+  "authority": "https://login.microsoftonline.com/YOUR_TENANT_ID_GOES_HERE",
+  "scopes": ["Calendars.ReadWrite", "User.Read"],
+  "calendar_url": "YOUR_ICAL_URL_GOES_HERE"
+}
