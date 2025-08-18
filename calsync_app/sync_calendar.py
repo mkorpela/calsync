@@ -4,8 +4,8 @@ import atexit
 import requests
 import os.path
 import re
-from datetime import datetime, timedelta, time
-from icalendar import Calendar
+from datetime import datetime, timedelta
+from icalendar import Calendar, vCalAddress
 import pytz
 
 # --- CONFIGURATION ---
@@ -76,7 +76,7 @@ def get_ical_events(ical_url):
         return None
 
 def parse_ical(ical_data):
-    """Parses raw iCal data into a list of event dictionaries."""
+    """Parses raw iCal data into a list of event dictionaries, including attendees and recurrence."""
     cal = Calendar.from_ical(ical_data)
     events = []
     utc = pytz.UTC
@@ -88,35 +88,70 @@ def parse_ical(ical_data):
                 start_dt = utc.localize(start_dt)
             if isinstance(end_dt, datetime) and end_dt.tzinfo is None:
                 end_dt = utc.localize(end_dt)
+            
+            attendees = []
+            for prop in component.get('attendee', []):
+                if isinstance(prop, vCalAddress):
+                    attendees.append({
+                        "email": prop.replace('mailto:', ''),
+                        "status": prop.params.get('PARTSTAT')
+                    })
+
             events.append({
                 "uid": str(component.get('uid')),
                 "summary": str(component.get('summary')),
                 "start": start_dt,
                 "end": end_dt,
-                "transp": str(component.get('transp')), # Transparency (busy/free)
-                "status": str(component.get('status')), # Status (confirmed, tentative)
+                "transp": str(component.get('transp')),
+                "status": str(component.get('status')),
+                "attendees": attendees,
+                "recurrence-id": component.get('recurrence-id')
             })
     return events
 
 def process_ical_events(events, config):
     """
-    Applies business logic: de-duplicates, filters for 'busy', and filters for working hours.
+    Applies business logic: de-duplicates (prioritizing instances), 
+    filters based on user participation, and filters for working hours.
     """
-    # Stage 1: De-duplicate by UID, keeping the first one seen.
+    user_email = config.get("user_email", "").lower()
+    if not user_email:
+        print("Warning: 'user_email' not set in config. Filtering will be based on event transparency only.")
+
+    # Stage 1: De-duplicate by UID, prioritizing events with a recurrence-id (instances).
     unique_events_by_uid = {}
     for event in events:
-        if event['uid'] not in unique_events_by_uid:
-            unique_events_by_uid[event['uid']] = event
+        uid = event['uid']
+        is_instance = event.get('recurrence-id') is not None
+        
+        if uid not in unique_events_by_uid or (is_instance and unique_events_by_uid[uid].get('recurrence-id') is None):
+            unique_events_by_uid[uid] = event
     
     deduplicated_events = list(unique_events_by_uid.values())
     
-    # Stage 2: Filter for events that block time ('OPAQUE') and are 'CONFIRMED'.
-    filtered_events = [
-        event for event in deduplicated_events
-        if event.get('transp') == 'OPAQUE' and event.get('status') == 'CONFIRMED'
-    ]
-    
-    print(f"Initial event count: {len(events)}. After de-duplication: {len(deduplicated_events)}. After filtering for busy/confirmed: {len(filtered_events)}.")
+    # Stage 2: Filter based on user's participation status.
+    filtered_events = []
+    for event in deduplicated_events:
+        if event.get('status') != 'CONFIRMED':
+            continue
+
+        is_user_attendee = False
+        user_partstat = None
+        if user_email:
+            for attendee in event.get('attendees', []):
+                if attendee.get('email', '').lower() == user_email:
+                    is_user_attendee = True
+                    user_partstat = attendee.get('status')
+                    break
+        
+        if is_user_attendee:
+            if user_partstat != 'DECLINED':
+                filtered_events.append(event)
+        else:
+            if event.get('transp') == 'OPAQUE':
+                filtered_events.append(event)
+
+    print(f"Initial event count: {len(events)}. After de-duplication: {len(deduplicated_events)}. After participation/busy filtering: {len(filtered_events)}.")
     
     # Stage 3: Filter for events within working hours.
     try:
@@ -131,7 +166,6 @@ def process_ical_events(events, config):
         event_start_local = event['start'].astimezone(local_tz)
         event_end_local = event['end'].astimezone(local_tz)
         
-        # Check each day the event touches to see if it overlaps with a working slot.
         current_date = event_start_local.date()
         is_in_working_hours = False
         while current_date <= event_end_local.date():
@@ -145,15 +179,14 @@ def process_ical_events(events, config):
                         slot_start_dt = local_tz.localize(datetime.combine(current_date, slot_start_time))
                         slot_end_dt = local_tz.localize(datetime.combine(current_date, slot_end_time))
 
-                        # Overlap exists if max(start1, start2) < min(end1, end2)
                         if max(event_start_local, slot_start_dt) < min(event_end_local, slot_end_dt):
                             working_hours_events.append(event)
                             is_in_working_hours = True
-                            break # Move to next event
+                            break
                     except (ValueError, KeyError):
-                        continue # Skip invalid slots
+                        continue
             if is_in_working_hours:
-                break # Move to next event
+                break
             current_date += timedelta(days=1)
             
     print(f"After filtering for working hours: {len(working_hours_events)} events remain.")
@@ -168,7 +201,6 @@ def get_outlook_events(access_token, start_date, end_date):
     headers = {'Authorization': f'Bearer {access_token}'}
     all_events_data = []
     
-    # Construct the initial URL with parameters
     base_url = "https://graph.microsoft.com/v1.0/me/calendarview"
     params = {
         'startDateTime': start_date.isoformat(),
@@ -177,14 +209,11 @@ def get_outlook_events(access_token, start_date, end_date):
         '$filter': f"subject eq '{OUTLOOK_EVENT_SUBJECT}'"
     }
     
-    # The API endpoint needs to be constructed carefully
     next_url = f"{base_url}?{requests.compat.urlencode(params)}"
     
     print("Fetching existing events from Outlook...")
     
-    # Loop until there are no more pages of results
     while next_url:
-        # For subsequent pages, the full URL is provided, so we don't need params
         response = requests.get(next_url, headers=headers)
         if response.status_code != 200:
             print(f"Error fetching Outlook events: {response.text}")
@@ -194,11 +223,9 @@ def get_outlook_events(access_token, start_date, end_date):
         all_events_data.extend(data.get('value', []))
         next_url = data.get('@odata.nextLink')
 
-    # Now, parse the full list of events retrieved from all pages
     parsed_events = []
     for event in all_events_data:
         body_content = event.get('body', {}).get('content', '')
-        # We don't need to check the subject again, but checking for the UID is still critical.
         if 'SourceUID::' in body_content:
             match = UID_REGEX.search(body_content)
             if match:
@@ -284,18 +311,22 @@ if __name__ == "__main__":
     
     all_ical_events = parse_ical(ical_data)
     
-    # Apply our new filtering and de-duplication logic
-    processed_ical_events = process_ical_events(all_ical_events, config)
-    
     now = datetime.now(pytz.UTC)
     sync_end_date = now + timedelta(days=SYNC_DAYS)
-    ical_events_in_window = [e for e in processed_ical_events if now <= e['start'] < sync_end_date]
-    print(f"Found {len(ical_events_in_window)} source events in the next {SYNC_DAYS} days to be synced.")
+    
+    ical_events_in_window = [
+        e for e in all_ical_events if now <= e.get('start', now) < sync_end_date
+    ]
+    print(f"\nTotal events parsed from iCal: {len(all_ical_events)}.")
+    print(f"Found {len(ical_events_in_window)} events in the next {SYNC_DAYS}-day sync window.")
+    
+    processed_ical_events = process_ical_events(ical_events_in_window, config)
+    print(f"After all filtering, {len(processed_ical_events)} source events remain to be synced.")
 
     outlook_events_in_window = get_outlook_events(access_token, now, sync_end_date)
     print(f"Found {len(outlook_events_in_window)} existing '{OUTLOOK_EVENT_SUBJECT}' events in Outlook.")
 
-    to_create, to_update, to_delete = reconcile_events(ical_events_in_window, outlook_events_in_window)
+    to_create, to_update, to_delete = reconcile_events(processed_ical_events, outlook_events_in_window)
     print(f"\nReconciliation complete: {len(to_create)} to create, {len(to_update)} to update, {len(to_delete)} to delete.")
     
     if DRY_RUN:
