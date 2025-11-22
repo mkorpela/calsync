@@ -82,11 +82,30 @@ def parse_ical(ical_data):
     utc = pytz.UTC
     for component in cal.walk():
         if component.name == "VEVENT":
-            start_dt = component.get('dtstart').dt
-            end_dt = component.get('dtend').dt
-            if isinstance(start_dt, datetime) and start_dt.tzinfo is None:
+            # .dt returns a datetime.date (for all-day) or datetime.datetime (for timed)
+            dtstart_prop = component.get('dtstart')
+            dtend_prop = component.get('dtend')
+
+            if not dtstart_prop:
+                continue # Skip invalid events without start date
+
+            start_dt = dtstart_prop.dt
+            # Handle end date: if missing (allowed in spec), assume it equals start date (or +1 day for all-day)
+            end_dt = dtend_prop.dt if dtend_prop else start_dt
+
+            # NORMALIZE: Convert date objects (all-day events) to datetime objects
+            if not isinstance(start_dt, datetime):
+                # It is an all-day event (date object). Convert to midnight UTC.
+                start_dt = datetime.combine(start_dt, datetime.min.time()).replace(tzinfo=utc)
+            elif start_dt.tzinfo is None:
+                # Naive datetime, localize to UTC
                 start_dt = utc.localize(start_dt)
-            if isinstance(end_dt, datetime) and end_dt.tzinfo is None:
+
+            if not isinstance(end_dt, datetime):
+                # It is an all-day event (date object). Convert to midnight UTC.
+                end_dt = datetime.combine(end_dt, datetime.min.time()).replace(tzinfo=utc)
+            elif end_dt.tzinfo is None:
+                # Naive datetime, localize to UTC
                 end_dt = utc.localize(end_dt)
             
             attendees = []
